@@ -1,39 +1,44 @@
-import 'package:flutter/foundation.dart';
-
 class Sorteio {
-  String? id;
+  String id;
   String nome;
   String desc;
   String img;
-  Duration duration;
-  List<String> productIds;
-
+  String data;
+  
+  // Optional parameters or ones that might be null
+  int? quantidade;
+  double? preco;
+  
   Sorteio({
-    this.id,
+    this.id = '',
     required this.nome,
     required this.desc,
     required this.img,
-    required this.duration,
-    required this.productIds,
+    required this.data,
+    this.quantidade,
+    this.preco,
   });
-
+  
   factory Sorteio.fromJson(Map<String, dynamic> json) {
     return Sorteio(
-      nome: json['nome'],
-      desc: json['desc'],
-      img: json['img'],
-      duration: Duration(minutes: json['durationMinutes']),
-      productIds: List<String>.from(json['productIds'] ?? []),
+      id: json['id'] as String? ?? '',
+      nome: json['nome'] as String? ?? 'Sem nome',
+      desc: json['desc'] as String? ?? 'Sem descrição',
+      img: json['img'] as String? ?? '',
+      data: json['data'] as String? ?? 'Data não definida',
+      quantidade: json['quantidade'] != null ? int.tryParse(json['quantidade'].toString()) : null,
+      preco: json['preco'] != null ? double.tryParse(json['preco'].toString()) : null,
     );
   }
-
+  
   Map<String, dynamic> toJson() {
     return {
       'nome': nome,
       'desc': desc,
       'img': img,
-      'durationMinutes': duration.inMinutes,
-      'productIds': productIds,
+      'data': data,
+      if (quantidade != null) 'quantidade': quantidade,
+      if (preco != null) 'preco': preco,
     };
   }
 }

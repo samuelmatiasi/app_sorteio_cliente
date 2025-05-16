@@ -62,10 +62,10 @@ class _ParticiparSorteioState extends State<ParticiparSorteio> {
         const SnackBar(content: Text("Erro de conexão com o servidor.")),
       );
     }
-        Navigator.pushReplacement(
+           Navigator.pushReplacement(
             context,
-          MaterialPageRoute(builder: (_) => StatusSorteio(sorteio: StatusSorteio!)),
-        );
+           MaterialPageRoute(builder: (context) => StatusSorteio(sorteio: widget.sorteio)),
+          );
   }
 
   @override
