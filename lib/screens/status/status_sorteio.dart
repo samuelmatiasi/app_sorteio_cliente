@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:app_sorteio_cliente/model/sorteio.dart';
+import 'dart:async';
 
 class StatusSorteio extends StatefulWidget {
   final Sorteio sorteio;
@@ -16,53 +17,82 @@ class StatusSorteioState extends State<StatusSorteio> {
   bool _isLoading = true;
   String? _ganhador;
   String? _errorMessage;
+  Timer? _checkTimer;
 
   @override
   void initState() {
     super.initState();
-    _verificarGanhador();
+    _startPeriodicCheck();
+    _verificarGanhador(); // Initial check
+  }
+
+  @override
+  void dispose() {
+    _checkTimer?.cancel();
+    super.dispose();
+  }
+
+  void _startPeriodicCheck() {
+    _checkTimer = Timer.periodic(const Duration(seconds: 5), (timer) {
+      if (_ganhador == null) { // Only check if we don't have a winner yet
+        _verificarGanhador();
+      }
+    });
   }
 
   Future<void> _verificarGanhador() async {
+    if (_ganhador != null) return; // Skip if already have a winner
+
     setState(() {
       _isLoading = true;
       _errorMessage = null;
     });
 
     try {
-      final url = Uri.parse("https://crud-projeto-87237-default-rtdb.firebaseio.com/ganhador/${widget.sorteio.id}.json");
+      final url = Uri.parse("https://crud-projeto-87237-default-rtdb.firebaseio.com/ganhador.json");
       final response = await http.get(url);
 
-      if (response.statusCode >= 200 && response.statusCode < 300) {
-        if (response.body == 'null' || response.body.isEmpty) {
-          // Nenhum ganhador ainda
+      if (response.statusCode == 200) {
+        if (response.body == 'null') {
           setState(() {
             _ganhador = null;
             _isLoading = false;
           });
         } else {
           try {
-            final data = jsonDecode(response.body);
-            setState(() {
-              _ganhador = data['nome'] as String?;
-              _isLoading = false;
-            });
+            final Map<String, dynamic> data = jsonDecode(response.body);
+            final entries = data.values.where((entry) => 
+              entry['sorteioNome'] == widget.sorteio.nome
+            );
+            
+            if (entries.isNotEmpty) {
+              setState(() {
+                _ganhador = entries.first['nome'] as String?;
+                _isLoading = false;
+              });
+              _checkTimer?.cancel(); // Stop checking once we have a winner
+            } else {
+              setState(() {
+                _ganhador = null;
+                _isLoading = false;
+              });
+            }
           } catch (e) {
             setState(() {
-              _errorMessage = "Erro ao processar dados do ganhador: $e";
+              _errorMessage = "Formato de dados inválido: $e";
               _isLoading = false;
             });
           }
         }
       } else {
         setState(() {
-          _errorMessage = "Erro ao verificar ganhador: ${response.statusCode}";
+          _errorMessage = "Erro no servidor: ${response.statusCode}";
           _isLoading = false;
         });
       }
     } catch (e) {
       setState(() {
-        _errorMessage = "Erro de conexão: $e";
+        _errorMessage = "Erro de conexão: Verifique sua internet e tente novamente";
         _isLoading = false;
       });
     }
