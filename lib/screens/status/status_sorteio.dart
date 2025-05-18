@@ -6,9 +6,7 @@ import 'dart:async';
 
 class StatusSorteio extends StatefulWidget {
   final Sorteio sorteio;
-  
   const StatusSorteio({super.key, required this.sorteio});
-
   @override
   State<StatusSorteio> createState() => StatusSorteioState();
 }
@@ -22,7 +20,7 @@ class StatusSorteioState extends State<StatusSorteio> {
   @override
   void initState() {
     super.initState();
-    _startPeriodicCheck();
+    _iniciarVerificacaoPeriodica();
     _verificarGanhador(); // Initial check
   }
 
@@ -32,7 +30,7 @@ class StatusSorteioState extends State<StatusSorteio> {
     super.dispose();
   }
 
-  void _startPeriodicCheck() {
+  void _iniciarVerificacaoPeriodica() {
     _checkTimer = Timer.periodic(const Duration(seconds: 5), (timer) {
       if (_ganhador == null) { // Only check if we don't have a winner yet
         _verificarGanhador();
@@ -49,8 +47,8 @@ class StatusSorteioState extends State<StatusSorteio> {
     });
 
     try {
-      final url = Uri.parse("https://crud-projeto-87237-default-rtdb.firebaseio.com/ganhador.json");
-      final response = await http.get(url);
+      final String  url = ("https://crud-projeto-87237-default-rtdb.firebaseio.com/ganhador");
+      final response = await http.get(Uri.parse("$url.json"));
 
       if (response.statusCode == 200) {
         if (response.body == 'null') {
