@@ -7,9 +7,12 @@ environment:
   sdk: ^3.7.2
 
 dependencies:
+  connectivity_plus: ^6.1.4
+  firebase_database: ^11.3.5
   flutter:
     sdk: flutter
   http: ^1.4.0
+  shared_preferences: ^2.5.3
 
 dev_dependencies:
   flutter_test:
@@ -18,3 +21,6 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/aplle_space.png
+    - assets/aplle_space_light.png

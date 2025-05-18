@@ -4,6 +4,8 @@ import 'package:app_sorteio_cliente/model/sorteio.dart';
 import 'package:app_sorteio_cliente/service/sorteio_service.dart';
 import 'package:app_sorteio_cliente/screens/participante/participar_sorteio.dart';
 import 'package:app_sorteio_cliente/screens/status/status_sorteio.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
+
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -12,88 +14,126 @@ class HomePage extends StatefulWidget {
   State<HomePage> createState() => _HomePageState();
 }
 
-class _HomePageState extends State<HomePage> {
+class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   final SorteioService _sorteioService = SorteioService();
   Sorteio? _sorteioAtual;
-  Timer? _reloadTimer;
   bool _isLoading = true;
   String? _errorMessage;
+  Timer? _refreshTimer;
+  
+  // Reduced polling frequency (2 minutes instead of 5 seconds)
+  static const Duration refreshInterval = Duration(minutes: 2);
+  
+  // Track if app is in foreground
+  bool _isAppInForeground = true;
+  
+  // Track connectivity status
+  bool _hasConnectivity = true;
+  StreamSubscription? _connectivitySubscription;
 
   @override
   void initState() {
     super.initState();
-    _carregarSorteio();
-    // Set up timer to refresh the sorteio data every 5 seconds
-    _reloadTimer = Timer.periodic(const Duration(seconds: 5), (_) => _carregarSorteio());
-  }
-
-  Future<void> _carregarSorteio() async {
-    setState(() {
-      _isLoading = true;
-      _errorMessage = null;
-    });
     
-    try {
-      // Use the updated method that returns a single Sorteio object
-      final sorteio = await _sorteioService.carregarSorteios();
+    // Register app lifecycle observer
+    WidgetsBinding.instance.addObserver(this);
+    
+    // Set up connectivity monitoring
+    _setupConnectivityMonitoring();
+    
+    // Load data immediately
+    _carregarSorteio();
+    
+    // Set up timer with reduced frequency
+    _refreshTimer = Timer.periodic(refreshInterval, (_) {
+      // Only refresh if app is in foreground and has connectivity
+      if (_isAppInForeground && _hasConnectivity) {
+        _carregarSorteio(silentRefresh: true);
+      }
+    });
+  }
+  
+  void _setupConnectivityMonitoring() async {
+    // Check initial connectivity
+    var connectivityResult = await (Connectivity().checkConnectivity());
+    _hasConnectivity = connectivityResult != ConnectivityResult.none;
+    
+    // Listen for connectivity changes
+    _connectivitySubscription = Connectivity().onConnectivityChanged.listen((result) {
+      final hasConnectivity = result != ConnectivityResult.none;
+      
+      // If connectivity was restored, refresh data
+      if (!_hasConnectivity && hasConnectivity && _isAppInForeground) {
+        _carregarSorteio(silentRefresh: true);
+      }
       
       setState(() {
-        _sorteioAtual = sorteio; // Now correctly assigning Sorteio? to Sorteio?
-        _isLoading = false;
+        _hasConnectivity = hasConnectivity;
       });
-    } catch (e) {
+    });
+  }
+  
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Update foreground state
+    _isAppInForeground = state == AppLifecycleState.resumed;
+    
+    // Refresh data when app comes back to foreground
+    if (_isAppInForeground && _hasConnectivity) {
+      _carregarSorteio(silentRefresh: true);
+    }
+  }
+
+  Future<void> _carregarSorteio({bool silentRefresh = false}) async {
+    // For silent refresh, don't show loading indicator
+    if (!silentRefresh) {
       setState(() {
-        _errorMessage = "Erro ao carregar sorteio: $e";
-        _isLoading = false;
+        _isLoading = true;
+        _errorMessage = null;
       });
-      print("Erro ao carregar sorteio: $e");
+    }
+    
+    try {
+      // Use force refresh based on silent parameter
+      final sorteio = await _sorteioService.carregarSorteios(forceRefresh: !silentRefresh);
+      
+      if (mounted) {
+        setState(() {
+          _sorteioAtual = sorteio;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          // Only update error state for non-silent refreshes
+          if (!silentRefresh) {
+            _errorMessage = "Erro ao carregar sorteio: $e";
+          }
+          _isLoading = false;
+        });
+      }
+      debugPrint("Erro ao carregar sorteio: $e");
     }
   }
 
   @override
   void dispose() {
-    _reloadTimer?.cancel();
+    _refreshTimer?.cancel();
+    _connectivitySubscription?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
-
-  @override
+@override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text("Sorteio do Dia"),
-        actions: [
-          // Add a refresh button to manually reload data
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: _carregarSorteio,
-            tooltip: "Atualizar sorteio",
-          ),
-          // Add a status button to check winner status
-          if (_sorteioAtual != null)
-            IconButton(
-              icon: const Icon(Icons.emoji_events),
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => StatusSorteio(sorteio: _sorteioAtual!),
-                  ),
-                );
-              },
-              tooltip: "Ver status do sorteio",
-            ),
-        ],
-      ),
-      body: RefreshIndicator(
-        onRefresh: _carregarSorteio,
-        child: SingleChildScrollView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          child: Container(
-            height: MediaQuery.of(context).size.height - 
-                   AppBar().preferredSize.height - 
-                   MediaQuery.of(context).padding.top,
-            padding: const EdgeInsets.all(32.0),
-            child: Center(
+      backgroundColor: Colors.black,
+      body: SafeArea(
+        child: RefreshIndicator(
+          onRefresh: () => _carregarSorteio(silentRefresh: false),
+          child: Center(
+            child: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 400),
               child: _buildContent(),
             ),
           ),
@@ -104,113 +144,152 @@ class _HomePageState extends State<HomePage> {
 
   Widget _buildContent() {
     if (_isLoading) {
-      return const Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          CircularProgressIndicator(),
-          SizedBox(height: 16),
-          Text("Carregando sorteio..."),
-        ],
+      return const Padding(
+        padding: EdgeInsets.all(32.0),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(height: 16),
+            Text("Carregando sorteio...", style: TextStyle(color: Colors.white)),
+          ],
+        ),
+      );
+    }
+
+    if (!_hasConnectivity) {
+      return _buildMessageCard(
+        icon: Icons.signal_wifi_off,
+        title: "Sem conexão com a internet",
+        subtitle: "Verifique sua conexão e tente novamente",
+        footnote: _sorteioAtual != null ? "Exibindo informações salvas anteriormente" : null,
+        iconColor: Colors.orange,
       );
     }
 
     if (_errorMessage != null) {
-      return Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          const Icon(
-            Icons.error_outline,
-            color: Colors.red,
-            size: 64,
-          ),
-          const SizedBox(height: 16),
-          Text(
-            _errorMessage!,
-            style: const TextStyle(color: Colors.red),
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 24),
-          ElevatedButton(
-            onPressed: _carregarSorteio,
-            child: const Text("Tentar novamente"),
-          ),
-        ],
+      return _buildMessageCard(
+        icon: Icons.error_outline,
+        title: _errorMessage!,
+        iconColor: Colors.red,
+        buttonLabel: "Tentar novamente",
+        onButtonPressed: () => _carregarSorteio(silentRefresh: false),
       );
     }
 
     if (_sorteioAtual == null) {
-      return const Column(
+      return Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(
-            Icons.info_outline,
-            size: 64,
-            color: Colors.blue,
-          ),
-          SizedBox(height: 16),
-          Text(
-            "Nenhum sorteio disponível no momento.",
-            style: TextStyle(fontSize: 20),
-            textAlign: TextAlign.center,
+          Image(image: AssetImage("assets/aplle_space_light.png"), width: MediaQuery.of(context).size.width * 0.7),
+          const SizedBox(height: 32),
+          ElevatedButton(
+            onPressed: () => _carregarSorteio(silentRefresh: false),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Color(0xFF3476ED),
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
+              textStyle: const TextStyle(fontSize: 30, fontWeight: FontWeight.bold),
+            ),
+            child: const Text("Buscar Sorteio"),
           ),
         ],
       );
     }
 
-    // Display sorteio information
-    return Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        Text(
-          _sorteioAtual!.nome,
-          style: const TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
-          textAlign: TextAlign.center,
-        ),
-        const SizedBox(height: 16),
-        Text(
-          _sorteioAtual!.desc,
-          style: const TextStyle(fontSize: 20),
-          textAlign: TextAlign.center,
-        ),
-        const SizedBox(height: 20),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            ElevatedButton(
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => ParticiparSorteio(sorteio: _sorteioAtual!),
-                  ),
-                );
-              },
-              style: ElevatedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
-                textStyle: const TextStyle(fontSize: 18),
+    return Padding(
+      padding: const EdgeInsets.all(32),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Text(
+            _sorteioAtual!.nome,
+            style: Theme.of(context).textTheme.headlineMedium?.copyWith(color: Colors.white),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 16),
+          Text(
+            _sorteioAtual!.desc,
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(color: Colors.white70),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 32),
+          Wrap(
+            spacing: 16,
+            alignment: WrapAlignment.center,
+            children: [
+              ElevatedButton.icon(
+                icon: const Icon(Icons.input),
+                label: const Text("Participar"),
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => ParticiparSorteio(sorteio: _sorteioAtual!),
+                    ),
+                  );
+                },
               ),
-              child: const Text("Participar"),
-            ),
-            const SizedBox(width: 16),
-            ElevatedButton(
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => StatusSorteio(sorteio: _sorteioAtual!),
-                  ),
-                );
-              },
-              style: ElevatedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
-                textStyle: const TextStyle(fontSize: 18),
-                backgroundColor: Colors.amber,
+              ElevatedButton.icon(
+                icon: const Icon(Icons.emoji_events),
+                label: const Text("Ver Status"),
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.amber),
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => StatusSorteio(sorteio: _sorteioAtual!),
+                    ),
+                  );
+                },
               ),
-              child: const Text("Ver Status"),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMessageCard({
+    required IconData icon,
+    required String title,
+    Color? iconColor,
+    String? subtitle,
+    String? footnote,
+    String? buttonLabel,
+    VoidCallback? onButtonPressed,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.all(32.0),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(icon, size: 72, color: iconColor ?? Colors.grey),
+          const SizedBox(height: 16),
+          Text(title,
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
+              textAlign: TextAlign.center),
+          if (subtitle != null) ...[
+            const SizedBox(height: 8),
+            Text(subtitle, textAlign: TextAlign.center, style: const TextStyle(color: Colors.white70)),
+          ],
+          if (footnote != null) ...[
+            const SizedBox(height: 16),
+            Text(footnote,
+                style: const TextStyle(fontStyle: FontStyle.italic, color: Colors.white60),
+                textAlign: TextAlign.center),
+          ],
+          if (buttonLabel != null && onButtonPressed != null) ...[
+            const SizedBox(height: 24),
+            ElevatedButton(
+              onPressed: onButtonPressed,
+              child: Text(buttonLabel),
             ),
           ],
-        ),
-      ],
+        ],
+      ),
     );
   }
 }
+
+

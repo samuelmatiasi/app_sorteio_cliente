@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:app_sorteio_cliente/model/sorteio.dart';
 import 'package:app_sorteio_cliente/screens/status/status_sorteio.dart';
 
@@ -15,90 +16,208 @@ class ParticiparSorteio extends StatefulWidget {
 class _ParticiparSorteioState extends State<ParticiparSorteio> {
   final TextEditingController _nomeController = TextEditingController();
   final TextEditingController _telefoneController = TextEditingController();
+  bool _alreadyParticipated = false;
+  bool _isChecking = true;
+  bool _isSubmitting = false;
 
-  Future<void> _enviarFormulario() async {
+  @override
+  void initState() {
+    super.initState();
+    _checkParticipationStatus();
+  }
+
+  Future<void> _checkParticipationStatus() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final participated = prefs.getBool('${widget.sorteio.id}_participated') ?? false;
+      
+      if (participated) {
+        setState(() => _alreadyParticipated = true);
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Erro ao verificar participações anteriores")),
+      );
+    }
+    setState(() => _isChecking = false);
+  }
+
+  Future<void> _submitParticipation() async {
+    if (_alreadyParticipated) return;
+
+    setState(() => _isSubmitting = true);
+    
     final nome = _nomeController.text.trim();
     final telefone = _telefoneController.text.trim();
 
     if (nome.isEmpty || telefone.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Preencha todos os campos.")),
+        const SnackBar(content: Text("Preencha todos os campos obrigatórios")),
       );
+      setState(() => _isSubmitting = false);
       return;
     }
 
-    final url = Uri.parse("https://crud-projeto-87237-default-rtdb.firebaseio.com/participantes/${widget.sorteio.id}.json");
-    final body = jsonEncode({
-      'nome': nome,
-      'telefone': telefone,
-      'sorteioId': widget.sorteio.id
-    });
-
     try {
-      final response = await http.post(url, body: body);
+      // Check for existing participation
+      final participantsUrl = Uri.parse(
+        "https://crud-projeto-87237-default-rtdb.firebaseio.com/participantes/${widget.sorteio.id}.json"
+      );
+
+      final checkResponse = await http.get(participantsUrl);
+      if (checkResponse.statusCode == 200) {
+        final participants = jsonDecode(checkResponse.body) as Map<String, dynamic>? ?? {};
+        final exists = participants.values.any((p) => p['telefone'] == telefone);
+        
+        if (exists) {
+          _handleExistingParticipation();
+          return;
+        }
+      }
+
+      // Submit new participation
+      final response = await http.post(
+        participantsUrl,
+        body: jsonEncode({
+          'nome': nome,
+          'telefone': telefone,
+          'sorteioId': widget.sorteio.id,
+          'timestamp': DateTime.now().toIso8601String(),
+        }),
+      );
+
       if (response.statusCode >= 200 && response.statusCode < 300) {
-        showDialog(
-          context: context,
-          builder: (_) => AlertDialog(
-            title: const Text("Confirmado!"),
-            content: Text("Obrigado por participar, $nome!"),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text("Fechar"),
-              )
-            ],
-          ),
+        await _handleSuccessfulSubmission();
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (context) => StatusSorteio(sorteio: widget.sorteio)),
         );
-        _nomeController.clear();
-        _telefoneController.clear();
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Erro ao enviar participação.")),
-        );
+        throw Exception('Falha no servidor: ${response.statusCode}');
       }
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Erro de conexão com o servidor.")),
+        SnackBar(content: Text("Erro na participação: ${e.toString()}")),
       );
+    } finally {
+      setState(() => _isSubmitting = false);
     }
-           Navigator.pushReplacement(
-            context,
-           MaterialPageRoute(builder: (context) => StatusSorteio(sorteio: widget.sorteio)),
-          );
+  }
+
+  Future<void> _handleSuccessfulSubmission() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('${widget.sorteio.id}_participated', true);
+    setState(() => _alreadyParticipated = true);
+  }
+
+  void _handleExistingParticipation() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('${widget.sorteio.id}_participated', true);
+    setState(() {
+      _alreadyParticipated = true;
+      _isSubmitting = false;
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text("Você já está participando deste sorteio!")),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
+    if (_isChecking) {
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+
     return Scaffold(
-      appBar: AppBar(title: Text("Participar: ${widget.sorteio.nome}")),
+      backgroundColor: Colors.black,
+      
       body: Padding(
         padding: const EdgeInsets.all(24.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            TextField(
-              controller: _nomeController,
-              decoration: const InputDecoration(labelText: "Nome"),
-            ),
+            if (_alreadyParticipated)
+              _buildParticipationStatus(),
+            const SizedBox(height: 20),
+            _buildNameField(),
             const SizedBox(height: 16),
-            TextField(
-              controller: _telefoneController,
-              decoration: const InputDecoration(labelText: "Telefone"),
-              keyboardType: TextInputType.phone,
-            ),
+            _buildPhoneField(),
             const SizedBox(height: 32),
-            ElevatedButton(
-              onPressed: _enviarFormulario,
-              child: const Text("Confirmar Participação"),
-              style: ElevatedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(vertical: 16),
-                textStyle: const TextStyle(fontSize: 18),
-              ),
-            )
+            _buildSubmitButton(),
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildParticipationStatus() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.green.shade100,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: const Text(
+        "Você já está participando deste sorteio!",
+        style: TextStyle(
+          color: Colors.green,
+          fontWeight: FontWeight.bold,
+          fontSize: 16,
+        ),
+        textAlign: TextAlign.center,
+      ),
+    );
+  }
+
+  Widget _buildNameField() {
+    return TextField(
+      
+      controller: _nomeController,
+      decoration: const InputDecoration(
+        labelText: "Nome completo",
+        border: OutlineInputBorder(),
+        
+      ),
+      enabled: !_alreadyParticipated && !_isSubmitting,
+    );
+  }
+
+  Widget _buildPhoneField() {
+    return TextField(
+      controller: _telefoneController,
+      decoration: const InputDecoration(
+        labelText: "Telefone",
+        border: OutlineInputBorder(),
+      ),
+      keyboardType: TextInputType.phone,
+      enabled: !_alreadyParticipated && !_isSubmitting,
+    );
+  }
+
+  Widget _buildSubmitButton() {
+    return ElevatedButton(
+      onPressed: _alreadyParticipated || _isSubmitting ? null : _submitParticipation,
+      style: ElevatedButton.styleFrom(
+        padding: const EdgeInsets.symmetric(vertical: 16),
+        backgroundColor: Colors.blue.shade800,
+        disabledBackgroundColor: Colors.grey.shade300,
+      ),
+      child: _isSubmitting
+          ? const SizedBox(
+              height: 24,
+              width: 24,
+              child: CircularProgressIndicator(color: Colors.white),
+            )
+          : const Text(
+              "CONFIRMAR PARTICIPAÇÃO",
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+                color: Colors.white,
+              ),
+            ),
     );
   }
 }

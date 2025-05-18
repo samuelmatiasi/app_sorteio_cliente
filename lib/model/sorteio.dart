@@ -1,29 +1,31 @@
+
 class Sorteio {
   String id;
   String nome;
   String desc;
   String data;
   
-
   Sorteio({
-    this.id = '',
+    required this.id,
     required this.nome,
     required this.desc,
     required this.data,
   });
   
+  // Convert JSON to Sorteio object
   factory Sorteio.fromJson(Map<String, dynamic> json) {
     return Sorteio(
-      id: json['id'] as String? ?? '',
-      nome: json['nome'] as String? ?? 'Sem nome',
-      desc: json['desc'] as String? ?? 'Sem descrição',
-      data: json['data'] as String? ?? 'Data não definida',
-  
+      id: json['id'] ?? '',
+      nome: json['nome'] ?? '',
+      desc: json['desc'] ?? '',
+      data: json['data'] ?? DateTime.now().toString(),
     );
   }
   
+  // Convert Sorteio object to JSON
   Map<String, dynamic> toJson() {
     return {
+      'id': id,
       'nome': nome,
       'desc': desc,
       'data': data,

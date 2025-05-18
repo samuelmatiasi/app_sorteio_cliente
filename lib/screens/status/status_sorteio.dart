@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:app_sorteio_cliente/model/sorteio.dart';
 import 'dart:async';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class StatusSorteio extends StatefulWidget {
   final Sorteio sorteio;
@@ -11,51 +12,128 @@ class StatusSorteio extends StatefulWidget {
   State<StatusSorteio> createState() => StatusSorteioState();
 }
 
-class StatusSorteioState extends State<StatusSorteio> {
+class StatusSorteioState extends State<StatusSorteio> with WidgetsBindingObserver {
   bool _isLoading = true;
   String? _ganhador;
   String? _errorMessage;
   Timer? _checkTimer;
-
+  bool _isAppInForeground = true;
+  
+  // Cache data
+  DateTime? _lastCheckTime;
+  static const Duration checkInterval = Duration(minutes: 1);
+  static const String lastCheckTimeKey = 'last_check_time';
+  static const String ganhadorKey = 'ganhador_';
+  
   @override
   void initState() {
     super.initState();
-    _iniciarVerificacaoPeriodica();
-    _verificarGanhador(); // Initial check
+    WidgetsBinding.instance.addObserver(this);
+    _loadCachedData();
+    
+    // Less frequent checking - once per minute instead of every 5 seconds
+    _checkTimer = Timer.periodic(checkInterval, (timer) {
+      if (_ganhador == null && _isAppInForeground) {
+        _verificarGanhador(silent: true);
+      } else if (_ganhador != null) {
+        // If we have a winner, we can stop the timer
+        _checkTimer?.cancel();
+      }
+    });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    _isAppInForeground = state == AppLifecycleState.resumed;
+    
+    // When app comes to foreground and no winner yet, refresh
+    if (_isAppInForeground && _ganhador == null) {
+      _verificarGanhador(silent: true);
+    }
+  }
+
+  Future<void> _loadCachedData() async {
+    final prefs = await SharedPreferences.getInstance();
+    
+    // Check if we have cached data for this specific sorteio
+    final sorteioGanhadorKey = '$ganhadorKey${widget.sorteio.id}';
+    final cachedGanhador = prefs.getString(sorteioGanhadorKey);
+    
+    if (cachedGanhador != null) {
+      setState(() {
+        _ganhador = cachedGanhador;
+        _isLoading = false;
+      });
+      // If we already have a winner, no need to keep checking
+      _checkTimer?.cancel();
+      return;
+    }
+    
+    // If no cached winner, check last lookup time
+    final lastCheckTimeStr = prefs.getString(lastCheckTimeKey);
+    if (lastCheckTimeStr != null) {
+      _lastCheckTime = DateTime.parse(lastCheckTimeStr);
+      final timeSinceLastCheck = DateTime.now().difference(_lastCheckTime!);
+      
+      // If we checked recently, wait before checking again
+      if (timeSinceLastCheck < checkInterval) {
+        setState(() {
+          _isLoading = false;
+        });
+        return;
+      }
+    }
+    
+    // If no cache or cache is old, check server
+    _verificarGanhador();
+  }
+
+  Future<void> _cacheData() async {
+    if (_ganhador != null) {
+      final prefs = await SharedPreferences.getInstance();
+      final sorteioGanhadorKey = '$ganhadorKey${widget.sorteio.id}';
+      await prefs.setString(sorteioGanhadorKey, _ganhador!);
+    }
+    
+    // Save last check time
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(lastCheckTimeKey, DateTime.now().toIso8601String());
+    _lastCheckTime = DateTime.now();
   }
 
   @override
   void dispose() {
     _checkTimer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
 
-  void _iniciarVerificacaoPeriodica() {
-    _checkTimer = Timer.periodic(const Duration(seconds: 5), (timer) {
-      if (_ganhador == null) { // Only check if we don't have a winner yet
-        _verificarGanhador();
-      }
-    });
-  }
-
-  Future<void> _verificarGanhador() async {
-    if (_ganhador != null) return; // Skip if already have a winner
-
-    setState(() {
-      _isLoading = true;
-      _errorMessage = null;
-    });
+  Future<void> _verificarGanhador({bool silent = false}) async {
+    // Skip if already have a winner
+    if (_ganhador != null) return;
+    
+    // Only show loading if not silent refresh
+    if (!silent) {
+      setState(() {
+        _isLoading = true;
+        _errorMessage = null;
+      });
+    }
 
     try {
-      final String  url = ("https://crud-projeto-87237-default-rtdb.firebaseio.com/ganhador");
-      final response = await http.get(Uri.parse("$url.json"));
+      // Add cache busting to avoid HTTP caching
+      final String url = "https://crud-projeto-87237-default-rtdb.firebaseio.com/ganhador";
+      final cacheBuster = DateTime.now().millisecondsSinceEpoch;
+      final response = await http.get(Uri.parse("$url.json?cacheBust=$cacheBuster"));
 
       if (response.statusCode == 200) {
         if (response.body == 'null') {
-          setState(() {
-            _ganhador = null;
-            _isLoading = false;
-          });
+          if (mounted) {
+            setState(() {
+              _ganhador = null;
+              _isLoading = false;
+            });
+          }
         } else {
           try {
             final Map<String, dynamic> data = jsonDecode(response.body);
@@ -64,46 +142,64 @@ class StatusSorteioState extends State<StatusSorteio> {
             );
             
             if (entries.isNotEmpty) {
-              setState(() {
-                _ganhador = entries.first['nome'] as String?;
-                _isLoading = false;
-              });
-              _checkTimer?.cancel(); // Stop checking once we have a winner
+              final ganhadorNome = entries.first['nome'] as String?;
+              
+              if (mounted) {
+                setState(() {
+                  _ganhador = ganhadorNome;
+                  _isLoading = false;
+                });
+              }
+              
+              // Cache the winner
+              _cacheData();
+              
+              // Stop checking once we have a winner
+              _checkTimer?.cancel();
             } else {
+              if (mounted) {
+                setState(() {
+                  _ganhador = null;
+                  _isLoading = false;
+                });
+              }
+              // Update last check time
+              _cacheData();
+            }
+          } catch (e) {
+            if (mounted && !silent) {
               setState(() {
-                _ganhador = null;
+                _errorMessage = "Formato de dados inválido: $e";
                 _isLoading = false;
               });
             }
-          } catch (e) {
-            setState(() {
-              _errorMessage = "Formato de dados inválido: $e";
-              _isLoading = false;
-            });
           }
         }
       } else {
+        if (mounted && !silent) {
+          setState(() {
+            _errorMessage = "Erro no servidor: ${response.statusCode}";
+            _isLoading = false;
+          });
+        }
+      }
+    } catch (e) {
+      if (mounted && !silent) {
         setState(() {
-          _errorMessage = "Erro no servidor: ${response.statusCode}";
+          _errorMessage = "Erro de conexão: Verifique sua internet e tente novamente";
           _isLoading = false;
         });
       }
-    } catch (e) {
-      setState(() {
-        _errorMessage = "Erro de conexão: Verifique sua internet e tente novamente";
-        _isLoading = false;
-      });
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: Text("Status do Sorteio: ${widget.sorteio.nome}"),
-      ),
+      backgroundColor: Colors.black,
+      
       body: RefreshIndicator(
-        onRefresh: _verificarGanhador,
+        onRefresh: () => _verificarGanhador(silent: false),
         child: SingleChildScrollView(
           physics: const AlwaysScrollableScrollPhysics(),
           child: Container(
@@ -151,7 +247,7 @@ class StatusSorteioState extends State<StatusSorteio> {
           ),
           const SizedBox(height: 24),
           ElevatedButton(
-            onPressed: _verificarGanhador,
+            onPressed: () => _verificarGanhador(),
             child: const Text("Tentar novamente"),
           ),
         ],
@@ -173,6 +269,7 @@ class StatusSorteioState extends State<StatusSorteio> {
             style: TextStyle(
               fontSize: 18,
               fontWeight: FontWeight.bold,
+              color: Color.fromARGB(255, 255, 255, 255)
             ),
             textAlign: TextAlign.center,
           ),
@@ -181,8 +278,16 @@ class StatusSorteioState extends State<StatusSorteio> {
             "Sorteio: ${widget.sorteio.nome}",
             style: const TextStyle(fontSize: 16),
           ),
-          const SizedBox(height: 8),
-    
+          const SizedBox(height: 24),
+          if (_lastCheckTime != null)
+            Text(
+              "Última verificação: ${_formatDateTime(_lastCheckTime!)}",
+              style: const TextStyle(
+                fontSize: 12,
+                fontStyle: FontStyle.italic,
+                color: Colors.grey,
+              ),
+            ),
         ],
       );
     } else {
@@ -235,6 +340,21 @@ class StatusSorteioState extends State<StatusSorteio> {
           ),
         ],
       );
+    }
+  }
+  
+  String _formatDateTime(DateTime dateTime) {
+    final now = DateTime.now();
+    final difference = now.difference(dateTime);
+    
+    if (difference.inMinutes < 1) {
+      return "agora mesmo";
+    } else if (difference.inMinutes < 60) {
+      return "há ${difference.inMinutes} minutos";
+    } else if (difference.inHours < 24) {
+      return "há ${difference.inHours} horas";
+    } else {
+      return "${dateTime.day}/${dateTime.month}/${dateTime.year} às ${dateTime.hour}:${dateTime.minute.toString().padLeft(2, '0')}";
     }
   }
 }
