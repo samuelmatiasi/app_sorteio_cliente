@@ -186,7 +186,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           ElevatedButton(
             onPressed: () => _carregarSorteio(silentRefresh: false),
             style: ElevatedButton.styleFrom(
-              backgroundColor: Color(0xFF3476ED),
+              backgroundColor: Color(0xFF377DFF),
               foregroundColor: Colors.white,
               padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
               textStyle: const TextStyle(fontSize: 30, fontWeight: FontWeight.bold),
@@ -219,6 +219,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             alignment: WrapAlignment.center,
             children: [
               ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.white,foregroundColor: Colors.black),
                 icon: const Icon(Icons.input),
                 label: const Text("Participar"),
                 onPressed: () {
@@ -233,7 +234,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               ElevatedButton.icon(
                 icon: const Icon(Icons.emoji_events),
                 label: const Text("Ver Status"),
-                style: ElevatedButton.styleFrom(backgroundColor: Colors.amber),
+                style: ElevatedButton.styleFrom(backgroundColor:  Color(0xFF377DFF), foregroundColor: Colors.white),
                 onPressed: () {
                   Navigator.push(
                     context,

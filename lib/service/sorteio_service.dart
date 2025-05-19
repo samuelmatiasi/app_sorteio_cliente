@@ -5,7 +5,7 @@ import 'package:app_sorteio_cliente/model/sorteio.dart';
 
 class SorteioService {
   // Firebase URL
-  final String url = "https://crud-projeto-87237-default-rtdb.firebaseio.com/sorteio";
+  final String url = "https://applespace-a00ab-default-rtdb.firebaseio.com/sorteio";
   
   // Cache for sorteio data
   Sorteio? _cachedSorteio;

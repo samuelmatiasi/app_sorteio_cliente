@@ -53,12 +53,14 @@ class DefaultFirebaseOptions {
   }
 
   static const FirebaseOptions web = FirebaseOptions(
-    apiKey: 'AIzaSyBEpW07PoOo_zj4ZvV_nvGhJrFmkRSMZ7o',
-    appId: '1:57414094508:web:5562940c64add9627b9909',
-    messagingSenderId: '57414094508',
-    projectId: 'crud-projeto-87237',
-    authDomain: 'crud-projeto-87237.firebaseapp.com',
-    databaseURL: 'https://crud-projeto-87237-default-rtdb.firebaseio.com',
-    storageBucket: 'crud-projeto-87237.firebasestorage.app',
+    apiKey: 'AIzaSyA3tTsoiprY40LHaVJ3HEd0Cf4pJzDVGdg',
+    appId: '1:935952446322:web:b2c25ed2bc3d44637863eb',
+    messagingSenderId: '935952446322',
+    projectId: 'applespace-a00ab',
+    authDomain: 'applespace-a00ab.firebaseapp.com',
+    databaseURL: 'https://applespace-a00ab-default-rtdb.firebaseio.com',
+    storageBucket: 'applespace-a00ab.firebasestorage.app',
+    measurementId: 'G-SVMGZ1MHD3',
   );
+
 }

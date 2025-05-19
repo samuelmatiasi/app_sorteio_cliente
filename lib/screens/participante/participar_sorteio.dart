@@ -61,7 +61,7 @@ class _ParticiparSorteioState extends State<ParticiparSorteio> {
     try {
       // Check for existing participation
       final participantsUrl = Uri.parse(
-        "https://crud-projeto-87237-default-rtdb.firebaseio.com/participantes/${widget.sorteio.id}.json"
+        "https://applespace-a00ab-default-rtdb.firebaseio.com/participantes/${widget.sorteio.id}.json"
       );
 
       final checkResponse = await http.get(participantsUrl);
@@ -171,30 +171,44 @@ class _ParticiparSorteioState extends State<ParticiparSorteio> {
     );
   }
 
-  Widget _buildNameField() {
-    return TextField(
-      
-      controller: _nomeController,
-      decoration: const InputDecoration(
-        labelText: "Nome completo",
-        border: OutlineInputBorder(),
-        
+ Widget _buildNameField() {
+  return TextField(
+    controller: _nomeController,
+    style: const TextStyle(color: Colors.white),
+    decoration: const InputDecoration(
+      labelText: "Nome completo",
+      labelStyle: TextStyle(color: Colors.white70),
+      border: OutlineInputBorder(),
+      enabledBorder: OutlineInputBorder(
+        borderSide: BorderSide(color: Colors.white70),
       ),
-      enabled: !_alreadyParticipated && !_isSubmitting,
-    );
-  }
+      focusedBorder: OutlineInputBorder(
+        borderSide: BorderSide(color: Colors.white),
+      ),
+    ),
+    enabled: !_alreadyParticipated && !_isSubmitting,
+  );
+}
 
-  Widget _buildPhoneField() {
-    return TextField(
-      controller: _telefoneController,
-      decoration: const InputDecoration(
-        labelText: "Telefone",
-        border: OutlineInputBorder(),
+ Widget _buildPhoneField() {
+  return TextField(
+    controller: _telefoneController,
+    style: const TextStyle(color: Colors.white),
+    keyboardType: TextInputType.phone,
+    decoration: const InputDecoration(
+      labelText: "Telefone",
+      labelStyle: TextStyle(color: Colors.white70),
+      border: OutlineInputBorder(),
+      enabledBorder: OutlineInputBorder(
+        borderSide: BorderSide(color: Colors.white70),
       ),
-      keyboardType: TextInputType.phone,
-      enabled: !_alreadyParticipated && !_isSubmitting,
-    );
-  }
+      focusedBorder: OutlineInputBorder(
+        borderSide: BorderSide(color: Colors.white),
+      ),
+    ),
+    enabled: !_alreadyParticipated && !_isSubmitting,
+  );
+}
 
   Widget _buildSubmitButton() {
     return ElevatedButton(
